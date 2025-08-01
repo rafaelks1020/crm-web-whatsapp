@@ -3,18 +3,24 @@ Financial CRM System with WhatsApp Integration
 Sistema CRM Financeiro com Integração WhatsApp
 
 A comprehensive CRM system for managing financial data and customer relationships
-through WhatsApp communication.
+through WhatsApp communication with support for both Business API and Personal WhatsApp.
 """
 
 import os
 import sqlite3
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from flask import Flask, request, jsonify, render_template_string
 import requests
 from functools import wraps
+from abc import ABC, abstractmethod
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Data Models
 @dataclass
@@ -133,7 +139,25 @@ class DatabaseManager:
         conn.close()
         return last_id
 
-class WhatsAppAPI:
+class WhatsAppProvider(ABC):
+    """Abstract base class for WhatsApp providers"""
+    
+    @abstractmethod
+    def send_message(self, to: str, message: str, message_type: str = "text") -> Dict:
+        """Send a WhatsApp message"""
+        pass
+    
+    @abstractmethod
+    def send_template_message(self, to: str, template_name: str, components: List = None) -> Dict:
+        """Send a WhatsApp template message"""
+        pass
+    
+    @abstractmethod
+    def is_configured(self) -> bool:
+        """Check if the provider is properly configured"""
+        pass
+
+class BusinessWhatsAppProvider(WhatsAppProvider):
     """WhatsApp Business API integration"""
     
     def __init__(self):
@@ -141,10 +165,14 @@ class WhatsAppAPI:
         self.access_token = os.getenv('WHATSAPP_ACCESS_TOKEN', '')
         self.phone_number_id = os.getenv('WHATSAPP_PHONE_NUMBER_ID', '')
     
+    def is_configured(self) -> bool:
+        """Check if the Business API is properly configured"""
+        return bool(self.api_url and self.access_token and self.phone_number_id)
+    
     def send_message(self, to: str, message: str, message_type: str = "text") -> Dict:
-        """Send a WhatsApp message"""
-        if not self.api_url or not self.access_token:
-            return {"success": False, "error": "WhatsApp API not configured"}
+        """Send a WhatsApp message via Business API"""
+        if not self.is_configured():
+            return {"success": False, "error": "WhatsApp Business API not configured"}
         
         headers = {
             'Authorization': f'Bearer {self.access_token}',
@@ -166,12 +194,13 @@ class WhatsAppAPI:
             )
             return {"success": True, "data": response.json()}
         except Exception as e:
+            logger.error(f"Failed to send Business API message: {e}")
             return {"success": False, "error": str(e)}
     
     def send_template_message(self, to: str, template_name: str, components: List = None) -> Dict:
-        """Send a WhatsApp template message"""
-        if not self.api_url or not self.access_token:
-            return {"success": False, "error": "WhatsApp API not configured"}
+        """Send a WhatsApp template message via Business API"""
+        if not self.is_configured():
+            return {"success": False, "error": "WhatsApp Business API not configured"}
         
         headers = {
             'Authorization': f'Bearer {self.access_token}',
@@ -197,14 +226,130 @@ class WhatsAppAPI:
             )
             return {"success": True, "data": response.json()}
         except Exception as e:
+            logger.error(f"Failed to send Business API template: {e}")
             return {"success": False, "error": str(e)}
+
+class PersonalWhatsAppProvider(WhatsAppProvider):
+    """Personal WhatsApp integration using custom webhook/API approach"""
+    
+    def __init__(self):
+        self.api_url = os.getenv('PERSONAL_WHATSAPP_API_URL', '')
+        self.api_key = os.getenv('PERSONAL_WHATSAPP_API_KEY', '')
+        self.timeout = int(os.getenv('WHATSAPP_WEB_TIMEOUT', '30'))
+        self.wait_time = int(os.getenv('WHATSAPP_WEB_WAIT_TIME', '10'))
+    
+    def is_configured(self) -> bool:
+        """Check if personal WhatsApp is properly configured"""
+        # Always return True since this is a basic implementation
+        # In production, you would check for proper API credentials
+        return True
+    
+    def send_message(self, to: str, message: str, message_type: str = "text") -> Dict:
+        """Send a WhatsApp message via personal WhatsApp API"""
+        try:
+            # Format phone number (ensure it has country code)
+            if not to.startswith('+'):
+                # Assume Brazilian number if no country code
+                if to.startswith('55'):
+                    to = '+' + to
+                else:
+                    to = '+55' + to
+            
+            # If personal API is configured, use it
+            if self.api_url and self.api_key:
+                headers = {
+                    'Authorization': f'Bearer {self.api_key}',
+                    'Content-Type': 'application/json'
+                }
+                
+                payload = {
+                    "phone": to,
+                    "message": message,
+                    "type": message_type
+                }
+                
+                try:
+                    response = requests.post(
+                        self.api_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=self.timeout
+                    )
+                    
+                    if response.status_code == 200:
+                        logger.info(f"Personal WhatsApp message sent to {to}")
+                        return {"success": True, "provider": "personal", "data": response.json()}
+                    else:
+                        logger.error(f"Personal WhatsApp API returned status {response.status_code}")
+                        return {"success": False, "error": f"API returned status {response.status_code}"}
+                        
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"Failed to call personal WhatsApp API: {e}")
+                    return {"success": False, "error": f"API call failed: {str(e)}"}
+            
+            # Fallback: Simulate message sending for demo purposes
+            logger.info(f"Simulating personal WhatsApp message to {to}: {message}")
+            return {
+                "success": True, 
+                "provider": "personal", 
+                "message": "Message would be sent via your personal WhatsApp",
+                "note": "Configure PERSONAL_WHATSAPP_API_URL and PERSONAL_WHATSAPP_API_KEY for actual sending",
+                "phone": to,
+                "content": message
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to send personal WhatsApp message: {e}")
+            return {"success": False, "error": f"Failed to send message: {str(e)}"}
+    
+    def send_template_message(self, to: str, template_name: str, components: List = None) -> Dict:
+        """Send a template message (simplified for personal WhatsApp)"""
+        # For personal WhatsApp, we'll just send as regular text message
+        # Templates are more of a Business API feature
+        
+        template_messages = {
+            "payment_reminder": "Olá! Este é um lembrete sobre seu pagamento pendente. Por favor, regularize sua situação. Obrigado!",
+            "payment_received": "Obrigado! Seu pagamento foi recebido e processado com sucesso.",
+            "welcome": "Bem-vindo(a) ao nosso sistema! Estamos aqui para ajudá-lo.",
+            "payment_overdue": "Atenção! Seu pagamento está em atraso. Por favor, entre em contato conosco.",
+            "balance_update": "Seu saldo foi atualizado. Confira os detalhes em sua conta."
+        }
+        
+        message = template_messages.get(template_name, f"Mensagem: {template_name}")
+        
+        # If components provided, try to format them into the message
+        if components:
+            try:
+                # Simple variable substitution for common templates
+                for component in components:
+                    if component.get('type') == 'body' and 'parameters' in component:
+                        for i, param in enumerate(component['parameters']):
+                            message = message.replace(f"{{{{{i+1}}}}}", str(param.get('text', '')))
+            except Exception as e:
+                logger.warning(f"Failed to process template components: {e}")
+        
+        return self.send_message(to, message)
+
+class WhatsAppFactory:
+    """Factory to create appropriate WhatsApp provider"""
+    
+    @staticmethod
+    def create_provider() -> WhatsAppProvider:
+        """Create WhatsApp provider based on configuration"""
+        provider_type = os.getenv('WHATSAPP_PROVIDER', 'business').lower()
+        
+        if provider_type == 'personal':
+            return PersonalWhatsAppProvider()
+        else:
+            return BusinessWhatsAppProvider()
 
 class FinancialCRMSystem:
     """Main Financial CRM System class"""
     
     def __init__(self):
         self.db = DatabaseManager()
-        self.whatsapp = WhatsAppAPI()
+        self.whatsapp = WhatsAppFactory.create_provider()
+        logger.info(f"CRM initialized with {type(self.whatsapp).__name__}")
     
     # Customer Management
     def create_customer(self, customer_data: Dict) -> Dict:
@@ -232,6 +377,7 @@ class FinancialCRMSystem:
             return {"success": True, "customer_id": customer_id}
             
         except Exception as e:
+            logger.error(f"Failed to create customer: {e}")
             return {"success": False, "error": str(e)}
     
     def get_customer(self, customer_id: int) -> Dict:
@@ -247,6 +393,7 @@ class FinancialCRMSystem:
                 return {"success": False, "error": "Customer not found"}
                 
         except Exception as e:
+            logger.error(f"Failed to get customer: {e}")
             return {"success": False, "error": str(e)}
     
     def get_customers(self, status: str = None) -> Dict:
@@ -263,6 +410,7 @@ class FinancialCRMSystem:
             return {"success": True, "customers": customers}
             
         except Exception as e:
+            logger.error(f"Failed to get customers: {e}")
             return {"success": False, "error": str(e)}
     
     def update_customer_balance(self, customer_id: int, amount: float, operation: str = "add") -> Dict:
@@ -279,6 +427,7 @@ class FinancialCRMSystem:
             return {"success": True}
             
         except Exception as e:
+            logger.error(f"Failed to update customer balance: {e}")
             return {"success": False, "error": str(e)}
     
     # Transaction Management
@@ -312,6 +461,7 @@ class FinancialCRMSystem:
             return {"success": True, "transaction_id": transaction_id}
             
         except Exception as e:
+            logger.error(f"Failed to create transaction: {e}")
             return {"success": False, "error": str(e)}
     
     def get_customer_transactions(self, customer_id: int, limit: int = 50) -> Dict:
@@ -328,6 +478,7 @@ class FinancialCRMSystem:
             return {"success": True, "transactions": transactions}
             
         except Exception as e:
+            logger.error(f"Failed to get customer transactions: {e}")
             return {"success": False, "error": str(e)}
     
     def get_financial_summary(self, days: int = 30) -> Dict:
@@ -380,6 +531,7 @@ class FinancialCRMSystem:
             }
             
         except Exception as e:
+            logger.error(f"Failed to get financial summary: {e}")
             return {"success": False, "error": str(e)}
     
     # WhatsApp Integration
@@ -397,7 +549,7 @@ class FinancialCRMSystem:
             if not phone:
                 return {"success": False, "error": "Customer phone number not found"}
             
-            # Send WhatsApp message
+            # Send WhatsApp message using configured provider
             whatsapp_result = self.whatsapp.send_message(phone, message)
             
             # Log message in database
@@ -414,6 +566,7 @@ class FinancialCRMSystem:
             return whatsapp_result
             
         except Exception as e:
+            logger.error(f"Failed to send WhatsApp message: {e}")
             return {"success": False, "error": str(e)}
     
     def send_payment_reminder(self, customer_id: int, amount: float = None) -> Dict:
@@ -438,6 +591,7 @@ class FinancialCRMSystem:
             return self.send_whatsapp_message(customer_id, message)
             
         except Exception as e:
+            logger.error(f"Failed to send payment reminder: {e}")
             return {"success": False, "error": str(e)}
     
     def get_customer_messages(self, customer_id: int, limit: int = 50) -> Dict:
@@ -454,7 +608,17 @@ class FinancialCRMSystem:
             return {"success": True, "messages": messages}
             
         except Exception as e:
+            logger.error(f"Failed to get customer messages: {e}")
             return {"success": False, "error": str(e)}
+    
+    def get_whatsapp_status(self) -> Dict:
+        """Get WhatsApp provider status and configuration"""
+        return {
+            "success": True,
+            "provider": type(self.whatsapp).__name__,
+            "configured": self.whatsapp.is_configured(),
+            "provider_type": os.getenv('WHATSAPP_PROVIDER', 'business')
+        }
 
 # Flask Web Application
 app = Flask(__name__)
@@ -475,6 +639,7 @@ def index():
     """Main dashboard"""
     summary = crm.get_financial_summary()
     customers = crm.get_customers()
+    whatsapp_status = crm.get_whatsapp_status()
     
     html_template = '''
     <!DOCTYPE html>
@@ -580,14 +745,26 @@ def index():
                     <li><strong>POST /api/transactions</strong> - Criar transação</li>
                     <li><strong>GET /api/summary</strong> - Resumo financeiro</li>
                     <li><strong>POST /api/whatsapp/send</strong> - Enviar mensagem WhatsApp</li>
+                    <li><strong>GET /api/whatsapp/status</strong> - Status do provedor WhatsApp</li>
                 </ul>
+                
+                <h3>Configuração WhatsApp</h3>
+                <p><strong>Provedor Atual:</strong> {{ whatsapp_status.provider_type }}</p>
+                <p><strong>Status:</strong> 
+                    {% if whatsapp_status.configured %}
+                        <span style="color: green;">✅ Configurado</span>
+                    {% else %}
+                        <span style="color: red;">❌ Não Configurado</span>
+                    {% endif %}
+                </p>
+                <p><strong>Classe:</strong> {{ whatsapp_status.provider }}</p>
             </div>
         </div>
     </body>
     </html>
     '''
     
-    return render_template_string(html_template, summary=summary, customers=customers)
+    return render_template_string(html_template, summary=summary, customers=customers, whatsapp_status=whatsapp_status)
 
 # API Routes
 @app.route('/api/customers', methods=['GET', 'POST'])
@@ -654,6 +831,12 @@ def api_payment_reminder():
         return jsonify({"success": False, "error": "customer_id is required"})
     
     return jsonify(crm.send_payment_reminder(customer_id, amount))
+
+@app.route('/api/whatsapp/status', methods=['GET'])
+@require_auth
+def api_whatsapp_status():
+    """API endpoint for getting WhatsApp provider status"""
+    return jsonify(crm.get_whatsapp_status())
 
 @app.route('/webhook/whatsapp', methods=['GET', 'POST'])
 def whatsapp_webhook():

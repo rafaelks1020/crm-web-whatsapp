@@ -7,6 +7,8 @@ Este é um Sistema CRM Financeiro completo com integração WhatsApp, desenvolvi
 - **Gestão de Clientes**: Cadastro, edição e visualização de clientes
 - **Controle Financeiro**: Registro de transações, pagamentos e cobranças
 - **Integração WhatsApp**: Envio de mensagens e lembretes de pagamento
+  - **WhatsApp Business API**: Integração oficial do Meta/Facebook
+  - **WhatsApp Pessoal**: Use seu próprio WhatsApp via API personalizada
 - **Dashboard**: Resumo financeiro e métricas em tempo real
 - **API REST**: Endpoints para integração com outros sistemas
 - **Interface Web**: Dashboard intuitivo para gerenciamento
@@ -59,10 +61,16 @@ Este projeto está configurado para deploy automático no Vercel:
 
 Configure as seguintes variáveis no painel do Vercel:
 
+**WhatsApp Business API:**
 - `WHATSAPP_API_URL`: URL da API do WhatsApp Business
 - `WHATSAPP_ACCESS_TOKEN`: Token de acesso do WhatsApp
 - `WHATSAPP_PHONE_NUMBER_ID`: ID do número de telefone
 - `WHATSAPP_VERIFY_TOKEN`: Token de verificação do webhook
+
+**WhatsApp Pessoal:**
+- `WHATSAPP_PROVIDER`: Define o provedor (`business` ou `personal`)
+- `PERSONAL_WHATSAPP_API_URL`: URL da sua API WhatsApp pessoal
+- `PERSONAL_WHATSAPP_API_KEY`: Chave da sua API WhatsApp pessoal
 
 ## 📡 API Endpoints
 
@@ -78,6 +86,7 @@ Configure as seguintes variáveis no painel do Vercel:
 ### WhatsApp
 - `POST /api/whatsapp/send` - Envia mensagem
 - `POST /api/whatsapp/reminder` - Envia lembrete de pagamento
+- `GET /api/whatsapp/status` - Status do provedor WhatsApp
 - `POST /webhook/whatsapp` - Webhook para receber mensagens
 
 ### Relatórios
@@ -109,6 +118,11 @@ curl -X POST http://localhost:5000/api/transactions \
   }'
 ```
 
+### Verificar Status do WhatsApp
+```bash
+curl -X GET http://localhost:5000/api/whatsapp/status
+```
+
 ### Enviar Mensagem WhatsApp
 ```bash
 curl -X POST http://localhost:5000/api/whatsapp/send \
@@ -119,13 +133,29 @@ curl -X POST http://localhost:5000/api/whatsapp/send \
   }'
 ```
 
-## 🔧 Configuração do WhatsApp Business API
+## 🔧 Configuração do WhatsApp
+
+### WhatsApp Business API
 
 1. Crie uma conta no Facebook Business
 2. Configure o WhatsApp Business API
 3. Obtenha o Access Token e Phone Number ID
 4. Configure o webhook para receber mensagens
 5. Adicione as credenciais no arquivo `.env`
+
+### WhatsApp Pessoal
+
+Para usar seu próprio WhatsApp (recomendado):
+
+1. Configure `WHATSAPP_PROVIDER=personal` no arquivo `.env`
+2. Implemente sua própria API WhatsApp ou use o modo simulação
+3. Configure `PERSONAL_WHATSAPP_API_URL` e `PERSONAL_WHATSAPP_API_KEY`
+4. Veja o arquivo [WHATSAPP_PERSONAL_GUIDE.md](WHATSAPP_PERSONAL_GUIDE.md) para instruções detalhadas
+
+**Bibliotecas recomendadas para WhatsApp pessoal:**
+- Node.js: `whatsapp-web.js`
+- Python: `selenium` + `webdriver-manager`
+- APIs prontas: Várias soluções open source disponíveis
 
 ## 🗄️ Estrutura do Banco de Dados
 
